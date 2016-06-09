@@ -135,10 +135,10 @@ while True:
 """
 
 
-class RS232:
+class RS232(object):
     def __init__(self, comport=None, baud=None):
         self.comport, self.baud = comport, baud
-        self.timeout = 15
+        self.timeout = 5
         self.buffer = 3
         self.conn = None
         if comport and baud:
@@ -155,7 +155,7 @@ class RS232:
         now = time.time()
         then = now + timeout
         while time.time() < then or (len(received) == buffer):
-            received += self.conn.read()
+            received += self.conn.read() if self.conn else ''
         return received
 
     def connect(self, comport = None, baud = None):
@@ -182,7 +182,7 @@ class RS232:
 
     def send(self, data, timeout=None):
         if timeout is None:
-            tiemout = self.timeout
+            timeout = self.timeout
         if self.conn:
             self.conn.write(data, timeout)
         else:
@@ -194,6 +194,9 @@ class RS232:
 class IFM(RS232):
     def __init__(self, comport=None, baud=None):
         self.comport, self.baud = comport, baud
+        self.timeout = 3
+        self.buffer = 3
+        self.conn = None
         if comport and baud:
             self.baud = int(baud)
         else:
@@ -211,6 +214,9 @@ class IFM(RS232):
 class LVL(RS232):
     def __init__(self, comport=None, baud=None):
         self.comport, self.baud = comport, baud
+        self.timeout = 3
+        self.buffer = 3
+        self.conn = None
         if comport and baud:
             self.baud = int(baud)
         else:
@@ -412,10 +418,10 @@ class GUI:
         self.autoVal.set(0)
 
         # init PLC, interferometer and level
-        self.plc = PLC(comsettings['PLCCOM'], int(comsettings['PLCBAUD']))
+        self.plc = PLC(comsettings['PLCPORT'], int(comsettings['PLCBAUD']))
         self.conn = self.plc.conn
-        self.ifm = IFM(comsettings['IFMCOM'], int(comsettings['IFMBAUD']))
-        self.lvl = LVL(comsettings['LVLCOM'], int(comsettings['LVLBAUD']))
+        self.ifm = IFM(comsettings['IFMPORT'], int(comsettings['IFMBAUD']))
+        self.lvl = LVL(comsettings['LVLPORT'], int(comsettings['LVLBAUD']))
 
         self.observer = ''  # operator
 
@@ -600,8 +606,8 @@ class GUI:
         self.on = False
         if self.active:
             self.startStop()
-        self.root.quit()
         self.root.destroy()
+        self.root.quit()
 
     def gotoLow(self):
         low = None
@@ -624,7 +630,7 @@ class GUI:
         return hi
 
     def moveStep(self):
-        pos = self.ifm.getPos()
+        pos = self.plc.getPos()
         step = 0
         try:
             step = float(self.stepEntry.get().strip())
@@ -813,7 +819,7 @@ class GUI:
 
 root = Tk()
 root.title('VERTICAL COMPARATOR')
-root.geometry('450x500')
+root.geometry('550x500')
 root.configure(bg=bgcolor)
 g = GUI(root)
 g.mainDialog()
