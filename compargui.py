@@ -11,11 +11,12 @@ import codecs
 import time
 from datetime import datetime
 import serial
-import pdb
 import os.path
+from externals import Comparator, Interferometer, Level, Nivel, Thermometer
 from tkinter import Tk, Button, Frame, Radiobutton, Entry, Label, Grid, IntVar, StringVar
 # from tkinter.messagebox import askokcancel, showwarning, showinfo
 import threading
+import operator
 
 # import queue
 
@@ -27,7 +28,9 @@ logfile = os.path.join('log', time.strftime('%Y%m%d%H%M%S')+'.log')
 # logging function, open file, write log and close
 def log(text='', filename=logfile):
     f = codecs.open(filename, 'a', encoding='utf-8')
-    f.write(time.strftime('%Y%m%d%H%M%S') + ' ' + text + '\n')
+    record = time.strftime('%Y%m%d%H%M%S') + ' ' + text
+    print(record)
+    f.write(record + '\n')
     f.close()
 
 
@@ -95,295 +98,7 @@ startstopfg = {0: 'white', 1: 'yellow'}
 
 # radiobutton MANUAL/ AUTO - when changed, log & status
 # when going to low/hi, start button should change to stop
-# move a step - change log and button to stop 
-
-
-## PYSERIAL SNIPPET
-
-"""port = "COM1"
-baud = 38400
-
-ser = serial.Serial(port,baud,timeout=0.5)
-print(ser.name + ' is open.')
-  
-sys.exit()
-
-while True:
-    input = raw_input("Enter HEX cmd or 'exit'>> ")
-    if input == 'exit':
-        ser.close()
-        print(port+' is closed.')
-        exit()
- 
-    elif len(input) == 8:
-    # user enters new register value, convert it into hex
-        newRegisterValue = bits_to_hex(input)
-        ser.write(newRegisterValue.decode('hex')+'\r\n')
-        print('Saving...'+newRegisterValue)
-        print('Receiving...')
-        out = ser.read(1)
-        for byte in out:
-            print(byte) # present ascii
-  
-    else:
-        cmd = input
-        print('Sending...'+cmd)
-        ser.write(cmd.decode('hex')+'\r\n')
-        print('Receiving...')
-        out = ser.read(1)
-        for byte in out:
-            print(byte) # present ascii
-"""
-
-
-class RS232(object):
-    _name = 'RS232'
-
-    def __init__(self, comport=None, baud=None, dictionary=None):
-        self.comport, self.baud = comport, baud
-        self.timeout = 5
-        self.buffer = 3
-        self.conn = None
-        self.dictionary = dictionary if dictionary is not None else {}
-        if comport and baud:
-            pass
-        else:
-            self.comport, self.baud = comsettings['PLCPORT'], int(comsettings['PLCBAUD'])
-
-    def receive(self, timeout=None, buffer=None):
-        if timeout is None:
-            timeout = self.timeout
-        if buffer is None:
-            buffer = self.buffer
-        received = ''
-        now = time.time()
-        then = now + timeout
-        while time.time() < then or (len(received) == buffer):
-            received += self.conn.read() if self.conn else ''
-        return received
-
-    def connect(self, comport = None, baud = None):
-        if comport is None:
-            comport = self.comport
-        if baud is None:
-            baud = self.baud
-        try:
-            self.conn = serial.Serial(comport, baud)
-            return self.conn
-        except serial.SerialException:
-            resp = 'Cannot connect to %s at %s' % (str(comport), str(baud))
-            print(resp)
-            log(resp)
-            return None
-
-    def disconnect(self):
-        try:
-            self.conn.close()
-        except AttributeError:
-            print('Connection probably does not exist')
-        except serial.SerialException:
-            print('Cannot close connection.')
-
-    def send(self, data, timeout=None):
-        if timeout is None:
-            timeout = self.timeout
-        if self.conn:
-            self.conn.write(data, timeout)
-        else:
-            log('Cannot send data to serial')
-
-
-
-# class for reading interferometer
-class IFM(RS232):
-    _name = 'Interferometer'
-
-    def __init__(self, comport=None, baud=None):
-        self.comport, self.baud = comport, baud
-        self.timeout = 3
-        self.buffer = 3
-        self.conn = None
-        if comport and baud:
-            self.baud = int(baud)
-        else:
-            self.comport, self.baud = comsettings['IFMPORT'], int(comsettings['IFMBAUD'])
-
-    def read(self):
-        self.receive()
-#    def read(self):
-#        response = None
-#        pass  # commands to get response (measurmenet)
-#        return response
-
-
-# class for reading level
-class LVL(RS232):
-    _name= 'Level'
-
-    def __init__(self, comport=None, baud=None):
-        self.comport, self.baud = comport, baud
-        self.timeout = 3
-        self.buffer = 3
-        self.conn = None
-        if comport and baud:
-            self.baud = int(baud)
-        else:
-            self.comport, self.baud = comsettings['LVLPORT'], int(comsettings['LVLBAUD'])
-
-    def read(self):
-        self.receive()
-
-
-# class for communication with PLC
-class PLC(RS232):
-    _name = 'Comparator'
-
-    # should connect to PLC during init
-    def __init__(self, comport=None, baud=None):
-        self.position = None
-        self.auto = False
-        self.conn = False
-        self.comport = comport
-        self.baud = baud
-        self.position = None
-        if comport and baud:
-            self.connect(self.comport, int(self.baud))
-        else:
-            try:
-                self.comport = comsettings.get('COM1', 'PLCPORT')
-                self.baud = int(comsettings.get('9600', 'PLCBAUD'))
-                self.conn = self.connect(self.comport, self.baud)
-            except serial.SerialTimeoutException as ste:
-                print('%s > Cannot connect to %s @ %d, timeout.' % (ste, self.comport, self.baud))
-
-            # these commands/queries must be changed according to the PLC settings
-
-    def translate(self, q, number=None):
-        emptybyte = '00000000'
-        plusbytes = emptybyte * 2
-
-        d = {'status': comsettings['STATUS'],
-             'stop': comsettings['STOP'],
-             'start': comsettings['START'],
-             'step': comsettings['STEP'],
-             'moveto': comsettings['MOVETO'],
-             'from': comsettings['FROM'],
-             'to': comsettings['TO'],
-             'getpos': comsettings['GETPOS'],
-             'getstat': comsettings['GETSTAT']
-             }
-
-        if q in ['start', 'step', 'moveto', 'from', 'to']:
-            if number is not None:
-                try:
-                    plusbytes = bin(number).lstrip('0b').zfill(16)[-16:]
-                except TypeError:
-                    print('Cannot convert %s, number is probably not a binary' % str(number))
-                    plusbytes = emptybyte * 2
-                d[q] += plusbytes
-
-        return d.get(q, None)
-
-    def query(self, q, additional=None):
-        if self.conn:
-            try:
-                self.conn.write(self.translate(q))
-                log('{}: Query sent'.format(q))
-                return self.read(3)
-            except:
-                log('%s: Query unresolved or not sent' % q)
-                return None
-        else:
-            log('Connection not established, query unsuccessful: %s' % q)
-            return None
-
-    def command(self, q):
-        if self.conn:
-            try:
-                self.conn.write(self.translate(q))
-            except:
-                log('%s: Command unresolved or not sent' % q)
-                return None
-        else:
-            log('Connection not established, command unsuccessful: %s' % q)
-            return None
-
-    def getPos(self):
-        return self.query('getpos')
-
-    def close(self):
-        self.disconnect()
-#        try:
-#            self.conn.close()
-#        except:
-#            resp = 'Cannot connect to %s at %s' % (str(self.comport), str(self.baud))
-#            print(resp)
-#            log(resp)
-
-    def send(self, data, timeout=15):
-        if self.conn:
-            self.conn.write(data, timeout=15)
-        else:
-            log('Cannot send data to serial')
-
-#    def receive(self, buffer=3, timeout=15):
-#        received = ''
-#        now = time.time()
-#        then = now + timeout
-#        while time.time() < then or (length(received) == 3):
-#            received += self.conn.read()
-#        return received
-
-    def setManual(self):
-        self.auto = False
-
-    def setAuto(self):
-        self.auto = True
-
-    def getposition(self):
-        self.send(self.getpositionstring)
-
-        # wait until timeout
-        response = self.receive()
-        # get position from PLC (if possible)
-        self.position = int(response, 2)
-        return self.position
-
-    # CONTROLS FOR PLC
-    def moveto(self, position):
-        pass
-        # send instruction to move to position "position"
-        log('move to %s' % position)
-        self.position = position
-        return self.position
-
-    def move(self, step):
-        self.position = self.getposition()
-        if float(comsettings['MINPOS']) < self.position + step < float(comsettings['MAXPOS']):
-            data = '000'  # THIS SHOULD BE CHANGED WHEN DATA EXCHANGE FORMAT IS DETERMINED
-            self.send(data)
-            return 1
-        else:
-            self.auto = False
-            self.stop()
-            return 0
-
-            # send instructions to move of "step" mm
-
-    def start(self, step):
-        if self.auto:
-            # automatic
-            pass
-        else:
-            self.move(step)
-
-    def stop(self):
-        if self.auto:
-            self.auto = False
-        data = '100'   # THIS SHOULD BE CHANGED WHEN DATA EXCHANGE FORMAT IS DETERMINED
-        self.send(data)
-        return self.getposition()
-
+# move a step - change log and button to stop
 
 # GUI for vertical comparator control
 class GUI:
@@ -399,9 +114,15 @@ class GUI:
         self.statusString = StringVar()
         self.statusText = 'Ready'
         self.statusString.set(self.statusText)
+        self.comparatorStatus = 'inactive'
+        # self.comparatorStatuses = ['inactive', 'active',
+        #                            'steady', 'moving', 'paused', 'finished']
+                                   # 2 manual statuses + 4 auto statuses
 
-        self.lvlStatus = StringVar()
+        self.levelStatus = StringVar()
         self.ifmStatus = StringVar()
+        self.nivelStatus = StringVar()
+        self.thermoStatus = StringVar()
 
         self.active = 0  # 0 - inactive state, 1 - active (in motion), 2 - steady (waiting while taking data)
         self.auto = 0
@@ -417,27 +138,38 @@ class GUI:
         self.labelTop.set('VERTICAL COMPARATOR')
 
         # LABELS ON BUTTONS
-        self.label10 = StringVar()  # start/stop
+        self.label10 = StringVar()  # initialize
+        self.label11 = StringVar()  # start/stop
+        self.label12 = StringVar()  # pause/continue
         self.label21 = StringVar()  # manual
         self.label22 = StringVar()  # auto
         self.label31 = StringVar()  # step
         self.label32 = StringVar()  # start
         self.label33 = StringVar()  # stop
-        self.label51 = StringVar()  # read interferometer
-        self.label52 = StringVar()  # read digi level
+        self.label51 = StringVar()  # manual read interferometer
+        self.label52 = StringVar()  # manual read digi level
+        self.label53 = StringVar()  # manual read nivel (inclinometer)
+        self.label54 = StringVar()  # manual read thermometer
 
         self.autoVal.set(0)
 
         # init PLC, interferometer and level
-        self.plc = PLC(comsettings['PLCPORT'], int(comsettings['PLCBAUD']))
+        self.plc = Comparator(comsettings['COMPARATOR_PORT'], int(comsettings['COMPARATOR_BAUD']))
         self.conn = self.plc.conn
-        self.ifm = IFM(comsettings['IFMPORT'], int(comsettings['IFMBAUD']))
-        self.lvl = LVL(comsettings['LVLPORT'], int(comsettings['LVLBAUD']))
+        self.paused = None
+        self.ifm = Interferometer(comsettings['IFM_PORT'], int(comsettings['IFM_BAUD']))
+        self.level = Level(comsettings['LEVEL_PORT'], int(comsettings['LEVEL_BAUD']))
+        self.nivel = Nivel(comsettings['NIVEL_PORT'], int(comsettings['NIVEL_BAUD']))
+        self.thermo = Thermometer(comsettings['THERMO_PORT'], int(comsettings['THERMO_BAUD']))
 
         self.observer = ''  # operator
 
-        self.label10.set({0: 'START', 1: 'STOP', 2:'STOP'}[self.active])  # start/stop
+        self.label10.set('Initialize')
+        self.label11.set({0: 'START', 1: 'STOP', 2:'STOP'}[self.active])  # start/stop
         self.setStatus({0: 'ready', 1: 'active', 2:'steady'}[self.active])
+
+        self.label12.set('PAUSE')
+
         self.label21.set('MANUAL')  # manual
         self.label22.set('AUTO')  # auto
 
@@ -447,6 +179,8 @@ class GUI:
 
         self.label51.set('READ IFM')  # read interferometer
         self.label52.set('READ LVL')  # read digi level
+        self.label53.set('READ NVL')  # read inclinometer
+        self.label54.set('READ THM')  # read thermometer
 
         self.timestring = StringVar()
         self.connstring = StringVar()
@@ -456,11 +190,14 @@ class GUI:
         self.timerthread.start()
 
         self.readdata = ''
-        self.connthread = threading.Thread(target=self.checkconnection)
+        self.connthread = threading.Thread(target=self.checkConnection)
         self.connthread.start()
 
-        self.statusthread = threading.Thread(target=self.checkstatus)
+        self.statusthread = threading.Thread(target=self.checkStatus)
         self.statusthread.start()
+
+        self.readexternalsthread = threading.Thread(target=self.readExternals)
+        self.readexternalsthread.start()
 
         self.autologthread = threading.Thread(target=self.autolog)
         self.autologthread.start()
@@ -478,27 +215,53 @@ class GUI:
         while self.on:
             dt = datetime.now() - self.starttime
             self.timestring.set('%-10s' % str(dt).split('.')[0])
-            time.sleep(1)
+            time.sleep(0.1)
 
     def autolog(self, timeout=60):
         while self.on:
             print('Autolog')
-            s, low, hi, step, ifm, lvl, obs = '', '', '', '', '', '', ''
+            (s, low, hi, step, ifm, lvl, nvl, thm, obs) = tuple(['']*9)
             try:
                 s = self.statusText
+            except BaseException:
+                s = 'N/A'
+            try:
                 low = self.lowEntry.get().strip()
+            except BaseException:
+                low = 'N/A'
+            try:
                 hi = self.hiEntry.get().strip()
+            except BaseException:
+                hi = 'N/A'
+            try:
                 step = self.stepEntry.get().strip()
-                ifm = IFM().read()
-                lvl = LVL().read()
+            except BaseException:
+                step = 'N/A'
+            try:
+                ifm = self.ifm.getReading()
+            except BaseException:
+                ifm = 'N/A'
+            try:
+                lvl = self.level.getReading()
+            except BaseException:
+                lvl = 'N/A'
+            try:
+                nvl = self.nivel.getReading()
+            except BaseException:
+                nvl = 'N/A'
+            try:
+                thm = self.thermo.getReading()
+            except BaseException:
+                thm = 'N/A'
+            try:
                 obs = self.entryObserver.get().strip()
-            except:
-                print('problem with values')
-            log('AUTOLOG! status: %s, low: %s, hi: %s, step: %s, ifm: %s, lvl: %s, obs: %s' % (
-            s, low, hi, step, ifm, lvl, obs))
+            except BaseException:
+                obs = 'N/A'
+            log('AUTOLOG! status: %s, low: %s, hi: %s, step: %s, ifm: %s, lvl: %s, nvl:%s, thm: %s, obs: %s' % (
+            s, low, hi, step, ifm, lvl, nvl, thm, obs))
             time.sleep(timeout)
 
-    def checkconnection(self):
+    def checkConnection(self):
         connection = False
         while self.on:
             if self.conn:
@@ -520,21 +283,34 @@ class GUI:
             self.connstring.set({True: 'isConn', False: 'notConn'}[connection])
             time.sleep(0.5)
 
-    def checkstatus(self):
-        st = None
+    def checkStatus(self):
         if self.conn:
-            try:
-                st = self.plc.query('status')
-                if st == commands['ACTIVE']:
-                    self.plc.status = 'active'
-                elif st == commands['INACTIVE']:
-                    self.status = 'ready'
-                else:
-                    self.status = 'unknown'
-            except:
+            moving = self.plc.query('is_moving')
+            if moving is None:
                 self.status = 'unknown'
+            elif not self.auto:
+                if moving:
+                    self.status = 'active'
+                else:
+                    self.status = 'inactive'
+            else:
+                if moving:
+                    self.status = 'moving'
+                else:
+                    if self.paused:
+                        self.status = 'paused'
+                    else:
+                        self.status = 'steady'
         else:
             self.status = 'not connected'
+
+    def readExternals(self):
+        while self.on:
+            # self.getIfm()
+            # self.getLevel()
+            self.getNivel()
+            self.getThermo()
+            time.sleep(15)
 
     def evaluateEntries(self):
         s, b, e = self.stepEntry, self.beginEntry, self.endEntry
@@ -549,7 +325,7 @@ class GUI:
         elif b < e and s < 0:
             b, e = e, b
 
-            # INPUT IN MM !! cannot recognize 0.5mm from 0.5m  step or 3mm vs 3m end
+        # INPUT IN MM !! cannot recognize 0.5mm from 0.5m  step or 3mm vs 3m end
         # input values converted to mm
         # [s,b,e] = [i*1000. if (i is not None and i<5.) else i for i in [s,b,e]]
         return s, b, e
@@ -561,24 +337,40 @@ class GUI:
         self.statusText = text
         self.statusString.set(self.statusText)
 
-    def setLvlStatus(self, text):
-        self.lvlStatus.set(text)
-
     def setIfmStatus(self, text):
         self.ifmStatus.set(text)
 
+    def setLevelStatus(self, text):
+        self.levelStatus.set(text)
+
+    def setNivelStatus(self, text):
+        self.nivelStatus.set(text)
+
+    def setThermoStatus(self, text):
+        self.thermoStatus.set(text)
+
     def getIfm(self):
-        ifm = IFM()
-        response = ifm.read()
-        if not response: response = "No response"
+        # log('Get Ifm reading')
+        response = self.ifm.getReading() or "No response"
         self.setIfmStatus(response)
         return response
 
     def getLevel(self):
-        lvl = LVL()  # možno naèíta pri __init__
-        response = lvl.read()
-        if not response: response = "No response"
-        self.setLvlStatus(response)
+        # log('Get Level reading')
+        response = self.level.getReading() or "No response"
+        self.setLevelStatus(response)
+        return response
+
+    def getNivel(self):
+        # log('Get Nivel reading')
+        response = self.nivel.getReading() or "No response"
+        self.setNivelStatus(response)
+        return response
+
+    def getThermo(self):
+        # log('Get Thermo reading')
+        response = self.thermo.getReading() or "No response"
+        self.setThermoStatus(response)
         return response
 
     #    #set stop button
@@ -591,12 +383,14 @@ class GUI:
 
     # toggle start stop
     def startStop(self):
+        # ask comparator if moving, then set "not response"
         self.active = not self.active
         self.label10.set({0: 'START', 1: 'STOP'}[self.active])
-        self.setStatus({0: 'ready', 1: 'active'}[self.active])
+        # self.setStatus({0: 'ready', 1: 'active'}[self.active])
+        self.setStatus(self.comparatorStatus)
 
-        self.butStartStop.configure(bg=startstopbg[self.active],
-                                    fg=startstopfg[self.active])
+        self.buttonStartStop.configure(bg=startstopbg[self.active],
+                                       fg=startstopfg[self.active])
 
         self.observer = self.entryObserver.get().strip()
 
@@ -610,11 +404,81 @@ class GUI:
         else:
             pass  # action after comparator is started
 
+    # CURRENT_POSITION, NEXT_POSITION, TARGET_POSITION, ITERATION
+    def writePauseParams(self,**params):
+        with open('.pause') as f:
+            f.write('\n'.join([k+' '+' '.join(vals) for k, vals in params.items()]))
+        return True
+
+    def readPauseParams(self):
+        params = {}
+        with open('.pause','r') as f:
+            for line in f.readlines():
+                key = line.split()[0]
+                vals = line.split()[1:]
+                params[key] = vals
+        os.remove('.pause')
+        return params
+
+    def pauseSession(self):
+        self.paused = True
+        self.stop()
+        self.writePauseParams()
+
+    def continueSession(self):
+        self.paused = False
+        params = self.readPauseParams()
+        self.moveto(params['NEXT_POS'])
+        self.session(float(params['NEXT_POS']), float(params['TARGET_POS']),
+                          float(params['STEP']), int(params['NEXT_ITER']))
+
+    def session(self, **params):
+        start = float(params.get('START_POS'))
+        target = float(params.get('TARGET_POS'))
+        step = float(params.get('STEP',5))
+        iteration = int(params.get('NEXT_ITER',0))
+        self.plc.moveto(start)
+        self.paused = False
+        op = operator.le if step > 0 else operator.ge
+        while op(self.plc.getPosition(), target):
+            iteration += 1
+            self.getMeasurement()
+            next_position = self.plc.getPosition() + step
+            if next_position < target:
+                self.plc.moveto(next_position)
+
+
+    def initialize(self):
+        if not self.plc.is_init():
+            log('Initialize')
+        else:
+            log('Already initialized, reinitialize.')
+        self.plc.initialize()
+
+    def pause(self):
+        # comparator status:
+        # man/inactive, man/active,
+        # auto/steady (measurement), auto/active, auto/paused, auto/finished
+        #['inactive', 'active', 'steady', 'moving', 'paused', 'finished']
+        if self.comparatorStatus in ('moving', 'steady'):
+            self.pauseSession()
+
+        elif self.comparatorStatus == 'paused':
+            self.continueSession()
+
+        # active / inactive - button should be disabled
+
+
+    def stop(self):
+        self.plc.command('STOP')
+
     def getEntries(self):
         return self.stepEntry, self.beginEntry, self.endEntry
 
     def close(self):
         self.on = False
+        # for thread in (self.timerthread, self.connthread, self.statusthread, self.autologthread, self.readexternalsthread):
+        #     thread.join()
         if self.active:
             self.startStop()
         self.root.destroy()
@@ -641,24 +505,29 @@ class GUI:
         return hi
 
     def moveStep(self):
-        pos = self.plc.getPos()
+        pos = self.plc.getPosition() or 0  # remove 0 when connection established
         step = 0
         try:
             step = float(self.stepEntry.get().strip())
-        except:
+        except BaseException:
             pass
         targetpos = pos + step
-
         if step != 0:
             self.setStatus('Moving to %f' % targetpos)
             self.plc.moveto(targetpos)
         return targetpos
 
-    def resetLvlStatus(self):
-        self.lvlStatus.set('')
-
     def resetIfmStatus(self):
         self.ifmStatus.set('')
+
+    def resetLevelStatus(self):
+        self.levelStatus.set('')
+
+    def resetNivelStatus(self):
+        self.nivelStatus.set('')
+
+    def resetThermoStatus(self):
+        self.thermoStatus.set('')
 
     def mainDialog(self):
 
@@ -692,16 +561,8 @@ class GUI:
 
         self.emptyRow(4)
 
-        self.butStartStop = Button(self.fr, textvariable=self.label10,
-                                   command=self.startStop,
-                                   bg=startstopbg[self.active],
-                                   fg=startstopfg[self.active],
-                                   font=("Calibri", 16, "bold"),
-                                   width=10)
-        self.butStartStop.grid(row=5, column=1, sticky='nsew')
-
         # AUTO / MANUAL  self.my_var.set(1)
-        self.butManual = Radiobutton(self.fr, text="MANUAL",
+        self.buttonManual = Radiobutton(self.fr, text="MANUAL",
                                      variable=self.auto,
                                      value=0,
                                      width=15,
@@ -709,20 +570,40 @@ class GUI:
                                      # bg=buttoncolor2,
                                      bg="moccasin",
                                      indicatoron=0)  # self.exit_root)
-        self.butManual.grid(row=5, column=0, sticky='ew', padx=(0, 10))
-        # self.butManual.configure(state='selected')
+        self.buttonManual.grid(row=5, column=0, sticky='ew', padx=(0, 10))
+        # self.buttonManual.configure(state='selected')
 
-        self.butAuto = Radiobutton(self.fr, text="AUTO",
+        self.buttonAuto = Radiobutton(self.fr, text="AUTO",
                                    variable=self.auto,
                                    value=1,
                                    width=15, justify='center',
                                    # bg=buttoncolor2,
                                    bg="moccasin",
                                    indicatoron=0)  # self.exit_root)
-        self.butAuto.grid(row=5, column=2, sticky='ew', padx=(10, 0))
+        self.buttonAuto.grid(row=5, column=2, sticky='ew', padx=(10, 0))
 
         self.emptyRow(6)
-        self.emptyRow(7)
+
+        #should be disabled if initialized already
+        self.buttonInitialize = Button(self.fr, text='Initialize',
+                                   justify='center', bg=buttoncolor, command=self.initialize)
+        self.buttonInitialize.grid(row=7, column=0, sticky='nsew')
+
+        self.buttonStartStop = Button(self.fr, textvariable=self.label11,
+                                   command=self.startStop,
+                                   bg=startstopbg[self.active],
+                                   fg=startstopfg[self.active],
+                                   font=("Calibri", 16, "bold"),
+                                   width=10)
+        self.buttonStartStop.grid(row=7, column=1, sticky='nsew')
+
+        self.buttonPause = Button(self.fr, textvariable=self.label12,
+                                   justify='center', bg=buttoncolor,
+                                   state={0: 'disabled', 1: 'enabled'}[self.auto],
+                                   command=self.pause)
+        self.buttonPause.grid(row=7, column=2, sticky='nsew')
+
+        self.emptyRow(8)
 
         # put Labels here
 
@@ -777,60 +658,86 @@ class GUI:
         # function buttons
 
 
-        # RIadok 12: Externals
-        butIFM = Button(self.fr, text="Read IFM", width=15, justify='center',
+        # RIadok 13-16: Externals
+        # Interferometer
+        buttonIfm = Button(self.fr, text="Read IFM", width=15, justify='center',
                         bg=buttoncolor, command=self.getIfm)  # self.exit_root)
-        butIFM.grid(row=13, column=0, sticky='we')
+        buttonIfm.grid(row=13, column=0, sticky='we')
 
-        self.labIfmStatus = Label(self.fr, textvariable=self.ifmStatus,
+        self.labelIfmStatus = Label(self.fr, textvariable=self.ifmStatus,
                                   justify='left', anchor='w', bg=bgcolor, fg=statuscolor,
                                   font=("Calibri", 12))
-        self.labIfmStatus.grid(row=13, column=1, columnspan=2,
+        self.labelIfmStatus.grid(row=13, column=1, columnspan=2,
                                sticky='we', padx=(15, 0))
-        self.labIfmStatus.bind('<Button-1>', self.resetIfmStatus)
+        self.labelIfmStatus.bind('<Button-1>', self.resetIfmStatus)
 
-        butLVL = Button(self.fr, text="Read level", width=15, justify='center',
+        # Digital level (Leica /Trimble)
+        buttonLevel = Button(self.fr, text="Read Level", width=15, justify='center',
                         bg=buttoncolor, command=self.getLevel)  # self.exit_root)
-        butLVL.grid(row=14, column=0, sticky='we')
+        buttonLevel.grid(row=14, column=0, sticky='we')
 
-        self.labLvlStatus = Label(self.fr, textvariable=self.lvlStatus,
+        self.labelLevelStatus = Label(self.fr, textvariable=self.levelStatus,
                                   justify='left', anchor='w', bg=bgcolor, fg=statuscolor,
                                   font=("Calibri", 12))
-        self.labLvlStatus.grid(row=14, column=1, columnspan=2,
+        self.labelLevelStatus.grid(row=14, column=1, columnspan=2,
                                sticky='we', padx=(15, 0))
-        self.labLvlStatus.bind('<Button-1>', self.resetLvlStatus)
+        self.labelLevelStatus.bind('<Button-1>', self.resetLevelStatus)
 
-        self.emptyRow(15)
+        # Nivel - inclinometer
+        buttonNivel = Button(self.fr, text="Read Nivel", width=15, justify='center',
+                        bg=buttoncolor, command=self.getNivel)  # self.exit_root)
+        buttonNivel.grid(row=15, column=0, sticky='we')
+
+        self.labelNivelStatus = Label(self.fr, textvariable=self.nivelStatus,
+                                  justify='left', anchor='w', bg=bgcolor, fg=statuscolor,
+                                  font=("Calibri", 12))
+        self.labelNivelStatus.grid(row=15, column=1, columnspan=2,
+                               sticky='we', padx=(15, 0))
+        self.labelNivelStatus.bind('<Button-1>', self.resetNivelStatus)
+
+        # Thermometer line
+        buttonThermo = Button(self.fr, text="Read Thermo", width=15, justify='center',
+                        bg=buttoncolor, command=self.getThermo)  # self.exit_root)
+        buttonThermo.grid(row=16, column=0, sticky='we')
+
+        self.labelThermoStatus = Label(self.fr, textvariable=self.thermoStatus,
+                                  justify='left', anchor='w', bg=bgcolor, fg=statuscolor,
+                                  font=("Calibri", 12))
+        self.labelThermoStatus.grid(row=16, column=1, columnspan=2,
+                               sticky='we', padx=(15, 0))
+        self.labelThermoStatus.bind('<Button-1>', self.resetThermoStatus)
+
+        self.emptyRow(17)
 
         Label(self.fr, text='OBSERVER:', anchor='w', justify='left',
               bg=bgcolor, fg=statuscolor, font=("Calibri", 12)
-              ).grid(row=16, column=0, sticky='we', padx=(5, 0))
+              ).grid(row=19, column=0, sticky='we', padx=(5, 0))
         self.entryObserver = Entry(self.fr, textvariable=self.observer,
                                    bg=inputbox, fg=statuscolor, font=("Calibri", 12),
                                    justify='left')
-        self.entryObserver.grid(row=16, column=1, columnspan=2, sticky='we')
+        self.entryObserver.grid(row=19, column=1, columnspan=2, sticky='we')
 
         # row 18> empty (or test connection)
-        self.emptyRow(18)
+        self.emptyRow(20)
         self.timeLabel = Label(self.fr, textvariable=self.timestring,
                                anchor='w', bg=bgcolor, fg=statuscolor,
                                font=("Calibri", 9))
-        self.timeLabel.grid(row=19, column=0)
+        self.timeLabel.grid(row=21, column=0)
 
         self.connLabel = Label(self.fr, textvariable=self.connstring,
                                anchor='w', bg=bgcolor, fg=statuscolor,
                                font=("Calibri", 9))
-        self.connLabel.grid(row=19, column=1)
+        self.connLabel.grid(row=21, column=1)
 
         butexit = Button(self.fr, text="EXIT", width=15, justify='center',
                          bg="black", fg="yellow", command=self.close,
                          font=("Calibri", 14, "bold"))
-        butexit.grid(row=19, column=2)
+        butexit.grid(row=21, column=2)
 
 
 root = Tk()
 root.title('VERTICAL COMPARATOR')
-root.geometry('550x500')
+root.geometry('550x550')
 root.configure(bg=bgcolor)
 g = GUI(root)
 g.mainDialog()

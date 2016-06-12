@@ -1,3 +1,10 @@
+# log files
+2*.log
+
+#virtaulenv
+act.env
+env/*
+
 # Windows image file caches
 Thumbs.db
 ehthumbs.db
