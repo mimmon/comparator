@@ -329,7 +329,7 @@ class Comparator(RS232):
         # here, position should be translated to units understandable by comparator
         converted_position = position
         self.command('moveto', position)
-        while not self.checkMovedTo(position):
+        while self.conn and not self.checkMovedTo(position):
             time.sleep(0.05)
         return self.getPosition()
 

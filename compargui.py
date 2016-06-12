@@ -510,7 +510,7 @@ class GUI:
         try:
             step = float(self.stepEntry.get().strip())
         except BaseException:
-            pass
+            log('Cannot determine step entry.')
         targetpos = pos + step
         if step != 0:
             self.setStatus('Moving to %f' % targetpos)
