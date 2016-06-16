@@ -15,6 +15,7 @@ import serial
 import pdb
 import os.path
 import threading
+import re
 
 # import queue
 
@@ -264,6 +265,32 @@ class Nivel(RS232):
             self.baud = int(baud)
         else:
             self.comport, self.baud = comsettings['NIVEL_PORT'], int(comsettings['NIVEL_BAUD'])
+
+    def convertResponse(self, response):
+        crd = ''
+        val = None
+        if re.match('222C1N1 .\:.*\d+.\d{3}3\\x02\\xd1'):
+            r = response.lstrip('222C1N1 ').rstrip('3\x02\xd1')
+            crd = r[0]
+            val = float(r.split(':')[1])
+        return val, crd
+
+    def getReading(self,*params):
+        queryx = '<22><2>N1C1 G X<3><13><10>'
+        queryy = '<22><2>N1C1 G Y<3><13><10>'
+        queryz = '<22><2>N1C1 G Z<3><13><10>'
+
+        self.send(queryx, timeout=1)
+        responsex = self.receive(buffer=20)
+        self.send(queryy, timeout=1)
+        responsey = self.receive(buffer=20)
+        self.send(queryz, timeout=1)
+        responsez = self.receive(buffer=20)
+
+        return map(lambda x: self.convertResponse(x)[0], [responsex, responsey, responsez])
+
+    def reset(self):
+        self.send('<22><2>N1C1 RES SYS<3><13><10>', timeout=1)
 
 
 class Thermometer(RS232):
