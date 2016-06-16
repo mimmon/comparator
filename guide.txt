@@ -1,0 +1,7 @@
+clone project> git clone git@github.com:mimmon/comparator.git
+create a virtualenv> virtualenv env -p python3
+activate env> . env/bin/activate
+install requirements> pip install -r requirements.txt
+
+if needed install tkinter for python3> sudo apt-get install python3-tk if needed
+
