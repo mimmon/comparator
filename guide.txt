@@ -1,3 +1,6 @@
+--LINUX------------------------
+  Tested on Linux Mint 17.3
+-------------------------------
 clone project> git clone git@github.com:mimmon/comparator.git
 create a virtualenv> virtualenv env -p python3
 activate env> . env/bin/activate
@@ -5,3 +8,16 @@ install requirements> pip install -r requirements.txt
 
 if needed install tkinter for python3> sudo apt-get install python3-tk if needed
 
+
+--WINDOWS----------------------
+  Tested on Windows
+-------------------------------
+install git (optional)
+install Python 3.5
+  - install for all users, use path C:/Python35, not the default
+  - install virtualenv:   cd C:/Python35/Scripts/; pip install virtualenv
+  - setup a new virtualenv for the project: virtualenv venv
+  - activate virtualenv: venv/Scripts/activate
+clone project, or unzip to prefered location
+install dependencies: pip install -r requirements.txt
+run program: compargui.py (to run controller) or test232.py (to test communication)
