@@ -16,6 +16,7 @@ import pdb
 import os.path
 import threading
 import re
+from pycrc import pycrc, crc_algorithms
 
 # import queue
 
@@ -45,6 +46,10 @@ def strbit2byte(s):
     return u''.join(map(lambda x: str(chr(int(x, 2))),
                         [bs[i * 8:i * 8 + 8] for i in range(len(bs) // 8)]))
 
+def hex2byte(s):
+    hs = ''.join(i if i in '0123456789ABCDEF' else '' for i in s)
+    hs = ('' if not len(hs) % 2 else '0') + hs
+    return u''.join(str(chr(int(hs[i*2:i*2+2], 16))) for i in range(len(hs)//2))
 
 comsettings = {}
 with open('com.cfg', 'r') as f:
@@ -130,10 +135,8 @@ class RS232(object):
         self.buffer = 3
         self.conn = None
         self.dictionary = dictionary if dictionary is not None else {}
-        if comport and baud:
-            pass
-        else:
-            self.comport, self.baud = comsettings['PLCPORT'], int(comsettings['PLCBAUD'])
+        if not (comport and baud):
+            self.comport, self.baud = comsettings['COMPARATOR_PORT'], int(comsettings['COMPARATOR_BAUD'])
 
     def receive(self, timeout=None, buffer=None):
         if timeout is None:
@@ -269,9 +272,9 @@ class Nivel(RS232):
     def convertResponse(self, response):
         crd = ''
         val = None
-        if re.match('222C1N1 .\:.*\d+.\d{3}3\\x02\\xd1'):
-            r = response.lstrip('222C1N1 ').rstrip('3\x02\xd1')
-            crd = r[0]
+        if re.match('222C1N1 .\:.*\d+.\d{3}3\\x02\\xd1', response):
+            r = str(response).lstrip('222C1N1 ').rstrip('3\x02\xd1')
+            crd = r.split(':')[0]
             val = float(r.split(':')[1])
         return val, crd
 
@@ -280,14 +283,15 @@ class Nivel(RS232):
         queryy = '<22><2>N1C1 G Y<3><13><10>'
         queryz = '<22><2>N1C1 G Z<3><13><10>'
 
-        self.send(queryx, timeout=1)
-        responsex = self.receive(buffer=20)
-        self.send(queryy, timeout=1)
-        responsey = self.receive(buffer=20)
-        self.send(queryz, timeout=1)
-        responsez = self.receive(buffer=20)
-
-        return map(lambda x: self.convertResponse(x)[0], [responsex, responsey, responsez])
+        # send query to get all three values in one reading
+        self.send(queryx, timeout=0.5)
+        responsex = self.receive(buffer=20) or ''
+        self.send(queryy, timeout=0.5)
+        responsey = self.receive(buffer=20) or ''
+        self.send(queryz, timeout=0.5)
+        responsez = self.receive(buffer=20) or ''
+        print(responsex, responsey)
+        return tuple(map(lambda x: self.convertResponse(x)[0], [responsex, responsey, responsez]))
 
     def reset(self):
         self.send('<22><2>N1C1 RES SYS<3><13><10>', timeout=1)

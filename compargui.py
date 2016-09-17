@@ -17,8 +17,18 @@ from tkinter import Tk, Button, Frame, Radiobutton, Entry, Label, Grid, IntVar, 
 # from tkinter.messagebox import askokcancel, showwarning, showinfo
 import threading
 import operator
-
+import sys
 # import queue
+
+# admin mode serves for testing purposes - communication with externals
+ADMIN_MODE = False
+args = sys.argv[1:]
+
+if '-a' in args:
+    ADMIN_MODE = True
+
+# set up geometry of the root window
+DIMENSIONS = '550x550' if not ADMIN_MODE else '550x750'
 
 
 # separate log file for each session
@@ -181,6 +191,9 @@ class GUI:
         self.label52.set('READ LVL')  # read digi level
         self.label53.set('READ NVL')  # read inclinometer
         self.label54.set('READ THM')  # read thermometer
+
+        self.chksumText = StringVar()
+        self.responseText = StringVar()
 
         self.timestring = StringVar()
         self.connstring = StringVar()
@@ -363,7 +376,7 @@ class GUI:
 
     def getNivel(self):
         # log('Get Nivel reading')
-        response = self.nivel.getReading() or "No response"
+        response = '-'.join(map(str,self.nivel.getReading())) if any(self.nivel.getReading()) else "No response"
         self.setNivelStatus(response)
         return response
 
@@ -385,12 +398,13 @@ class GUI:
     def startStop(self):
         # ask comparator if moving, then set "not response"
         self.active = not self.active
-        self.label10.set({0: 'START', 1: 'STOP'}[self.active])
         # self.setStatus({0: 'ready', 1: 'active'}[self.active])
         self.setStatus(self.comparatorStatus)
 
+        self.label10.set({0: 'START', 1: 'STOP'}[self.active])
         self.buttonStartStop.configure(bg=startstopbg[self.active],
                                        fg=startstopfg[self.active])
+        print(self.active)
 
         self.observer = self.entryObserver.get().strip()
 
@@ -449,7 +463,7 @@ class GUI:
 
 
     def initialize(self):
-        if not self.plc.is_init():
+        if not self.plc.isInit():
             log('Initialize')
         else:
             log('Already initialized, reinitialize.')
@@ -528,6 +542,63 @@ class GUI:
 
     def resetThermoStatus(self):
         self.thermoStatus.set('')
+
+    def submit(self):
+        calculate_checksum = True
+
+        port = self.portEntry.get().strip()
+        message = self.messageEntry.get()
+        chksumtyp = self.portChecksumType.get()
+
+        from externals import RS232
+        from pycrc import pycrc, crc_algorithms, Crc
+
+        rs = RS232()
+        r = rs.connect(port, baud=38400)
+        if r:
+            print ('Successfully connected to %s' % r.name)
+
+
+        checksum = ''
+        if calculate_checksum:
+            from pycrc.crc_algorithm import Crc
+
+            # params = filter(lambda x: x['name']==chksumtyp, cmodels)[0]
+            params = {'width': 16, 'poly':0x1021, 'reflect_in':True,
+                      'xor_in':0x0000, 'reflect_out':True, 'xor_out':0x0000}
+
+            crc = Crc(**params)
+            print("{0:#x}".format(crc.bit_by_bit(message)))
+            # crc = Crc(width=16, poly=0x8005,
+            #             reflect_in = True, xor_in = 0x0000,
+            #             reflect_out = True, xor_out = 0x0000)
+            # >> > print("{0:#x}".format(crc.bit_by_bit("123456789")))
+            # >> > print("{0:#x}".format(crc.bit_by_bit_fast("123456789")))
+            # >> > print("{0:#x}".format(crc.table_driven("123456789")))
+
+
+
+        rs.send()
+
+
+        # self.chksumLabel = (self.fr, textvariable = self.chksumText, anchor = 'w',
+        #                                                                       bg = bgcolor, fg = statuscolor, font = (
+        # "Calibri", 9))
+        # self.chksumLabel.grid(row=23, column=2)
+        #
+        # buttonSubmit = Button(self.fr, text="SUBMIT", width=15, justify='center',
+        #                       bg="black", fg="yellow", command=self.submit,
+        #                       font=("Calibri", 14, "bold"))
+        # buttonSubmit.grid(row=23, column=0)
+        #
+        # self.responseLabel = (self.fr, textvariable = self.responseText, anchor = 'w',
+        #                                                                           bg = bgcolor, fg = statuscolor, font = (
+        # "Calibri", 9))
+        # self.responseLabel.grid(row=23, column=1)
+        #
+        # self.emptyRow(24)
+
+
 
     def mainDialog(self):
 
@@ -719,26 +790,70 @@ class GUI:
 
         # row 18> empty (or test connection)
         self.emptyRow(20)
+
+        if ADMIN_MODE:
+            # port, message, checksum_type?, resulting checksum?, submit, response
+            self.portEntry = Entry(self.fr, width=20, bd=3, justify='left',
+                                   bg=inputbox, fg=statuscolor)
+            self.portEntry.grid(row=21, column=0, sticky='we')
+            Label(self.fr, text='PORT', anchor='w', justify='left',
+                  bg=bgcolor, fg=statuscolor, font=("Calibri", 12)
+                  ).grid(row=22, column=0, sticky='we', padx=(5, 0))
+
+            self.messageEntry = Entry(self.fr, width=20, bd=3, justify='left',
+                                   bg=inputbox, fg=statuscolor)
+            self.messageEntry.grid(row=21, column=1, sticky='we')
+            Label(self.fr, text='MESSAGE', anchor='w', justify='left',
+                  bg=bgcolor, fg=statuscolor, font=("Calibri", 12)
+                  ).grid(row=22, column=1, sticky='we', padx=(5, 0))
+
+            self.portChecksumType = Entry(self.fr, width=20, bd=3, justify='left',
+                                   bg=inputbox, fg=statuscolor)
+            self.portChecksumType.grid(row=21, column=2, sticky = 'we')
+            Label(self.fr, text='CHKSUM TYPE', anchor='w', justify='left',
+                        bg=bgcolor, fg=statuscolor, font=("Calibri", 12)
+                        ).grid(row=22, column=2, sticky='we', padx=(5, 0))
+
+
+            self.chksumLabel = Label(self.fr, textvariable=self.chksumText, anchor='w',
+                                bg=bgcolor, fg=statuscolor, font=("Calibri", 9))
+            self.chksumLabel.grid(row=23, column=2)
+
+            buttonSubmit = Button(self.fr, text="SUBMIT", width=15, justify='center',
+                             bg="black", fg="yellow", command=self.submit,
+                             font=("Calibri", 14, "bold"))
+            buttonSubmit.grid(row=23, column=0)
+
+
+            self.responseLabel = Label(self.fr, textvariable=self.responseText, anchor='w',
+                                bg=bgcolor, fg=statuscolor, font=("Calibri", 9))
+            self.responseLabel.grid(row=23, column=1)
+
+            self.emptyRow(24)
+
+
+        lastLine = 21 if not ADMIN_MODE else 25
+
         self.timeLabel = Label(self.fr, textvariable=self.timestring,
                                anchor='w', bg=bgcolor, fg=statuscolor,
                                font=("Calibri", 9))
-        self.timeLabel.grid(row=21, column=0)
+        self.timeLabel.grid(row=lastLine, column=0)
 
         self.connLabel = Label(self.fr, textvariable=self.connstring,
                                anchor='w', bg=bgcolor, fg=statuscolor,
                                font=("Calibri", 9))
-        self.connLabel.grid(row=21, column=1)
+        self.connLabel.grid(row=lastLine, column=1)
 
         butexit = Button(self.fr, text="EXIT", width=15, justify='center',
                          bg="black", fg="yellow", command=self.close,
                          font=("Calibri", 14, "bold"))
-        butexit.grid(row=21, column=2)
+        butexit.grid(row=lastLine, column=2)
 
-
-root = Tk()
-root.title('VERTICAL COMPARATOR')
-root.geometry('550x550')
-root.configure(bg=bgcolor)
-g = GUI(root)
-g.mainDialog()
-root.mainloop()
+if __name__ == '__main__':
+    root = Tk()
+    root.title('VERTICAL COMPARATOR')
+    root.geometry(DIMENSIONS)
+    root.configure(bg=bgcolor)
+    g = GUI(root)
+    g.mainDialog()
+    root.mainloop()
