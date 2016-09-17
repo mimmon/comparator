@@ -11,7 +11,7 @@ import codecs
 import time
 from datetime import datetime
 import serial
-import os.path
+import os
 from externals import Comparator, Interferometer, Level, Nivel, Thermometer
 from tkinter import Tk, Button, Frame, Radiobutton, Entry, Label, Grid, IntVar, StringVar
 # from tkinter.messagebox import askokcancel, showwarning, showinfo
@@ -32,6 +32,8 @@ DIMENSIONS = '550x550' if not ADMIN_MODE else '550x750'
 
 
 # separate log file for each session
+if not os.path.isdir('log'):
+    os.mkdir('log')
 logfile = os.path.join('log', time.strftime('%Y%m%d%H%M%S')+'.log')
 
 
@@ -199,20 +201,20 @@ class GUI:
         self.connstring = StringVar()
 
         # self.queue = queue.Queue()
-        self.timerthread = threading.Thread(target=self.timer)
+        self.timerthread = threading.Thread(target=self.timer, name='Timer')
         self.timerthread.start()
 
         self.readdata = ''
-        self.connthread = threading.Thread(target=self.checkConnection)
+        self.connthread = threading.Thread(target=self.checkConnection, name='ConnChk')
         self.connthread.start()
 
-        self.statusthread = threading.Thread(target=self.checkStatus)
+        self.statusthread = threading.Thread(target=self.checkStatus, name='StatChk')
         self.statusthread.start()
 
-        self.readexternalsthread = threading.Thread(target=self.readExternals)
+        self.readexternalsthread = threading.Thread(target=self.readExternals, name='ReadExt')
         self.readexternalsthread.start()
 
-        self.autologthread = threading.Thread(target=self.autolog)
+        self.autologthread = threading.Thread(target=self.autolog, name='Autolog')
         self.autologthread.start()
 
         # starttimer()
