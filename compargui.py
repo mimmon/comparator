@@ -495,6 +495,7 @@ class GUI:
         self.on = False
         # for thread in (self.timerthread, self.connthread, self.statusthread, self.autologthread, self.readexternalsthread):
         #     thread.join()
+        # TODO CLOSE ALL CONNECTIONS!!
         if self.active:
             self.startStop()
         self.root.destroy()

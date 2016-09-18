@@ -129,14 +129,20 @@ class RS232(object):
     """
     _name = 'RS232'
 
-    def __init__(self, comport=None, baud=None, dictionary=None):
+    def __init__(self, comport=None, baud=None, dictionary=None, timeout=None, buffer=None):
         self.comport, self.baud = comport, baud
-        self.timeout = 3
-        self.buffer = 3
+        self.timeout = timeout or 1
+        self.buffer = buffer or 1
         self.conn = None
         self.dictionary = dictionary if dictionary is not None else {}
         if not (comport and baud):
             self.comport, self.baud = comsettings['COMPARATOR_PORT'], int(comsettings['COMPARATOR_BAUD'])
+
+    def __repr__(self):
+        return '<RS232 {}@{}:{}:{}>'.format(self.comport, self.baud, self.timeout, self.buffer)
+
+    def __str__(self):
+        return '<RS232 {}@{}>'.format(self.comport, self.baud)
 
     def receive(self, timeout=None, buffer=None):
         if timeout is None:
@@ -144,19 +150,29 @@ class RS232(object):
         if buffer is None:
             buffer = self.buffer
         received = ''
-        now = time.time()
-        then = now + timeout
-        while time.time() < then or (len(received) == buffer):
-            received += self.conn.read() if self.conn else ''
+        # now = time.time()
+        # then = now + timeout
+        # while time.time() < then or (len(received) <= buffer):
+        #     # import pdb; pdb.set_trace()
+        #     if self.conn:
+        #         buf = self.conn.read()
+        #         received += ''.join(chr(i) for i in buf)
+        #     # received += ''.join(chr(i) for i in self.conn.read()) if self.conn else ''
+        if self.conn:
+            received += ''.join(chr(i) for i in self.conn.read())
         return received
 
-    def connect(self, comport = None, baud = None):
+    def connect(self, comport=None, baud=None, timeout=None):
         if comport is None:
             comport = self.comport
         if baud is None:
             baud = self.baud
+        timeout = timeout or self.timeout
         try:
-            self.conn = serial.Serial(comport, baud)
+            print ('Connecting ...')
+            # import pdb;pdb.set_trace()
+            self.conn = serial.Serial(port=comport, baudrate=baud, timeout=timeout)
+            print (self.conn)
             return self.conn
         except serial.SerialException:
             resp = 'Cannot connect to %s at %s' % (str(comport), str(baud))
@@ -172,14 +188,17 @@ class RS232(object):
         except serial.SerialException:
             print('Cannot close connection.')
 
-    def send(self, data, timeout=None):
-        if timeout is None:
-            timeout = self.timeout
+    def send(self, data, writeTimeout=None):
+        # if writeTimeout is None:
+        #     timeout = self.writeTimeout
         if self.conn:
-            self.conn.write(data, timeout)
-            return True
+            if not self.conn._write_timeout:
+                self.conn._write_timeout = writeTimeout or 0
+            # print (data)
+            return self.conn.write(data)
         else:
             log('Cannot send data to serial')
+            return None
 
     def translate(self, key, *params):
         return ' '.join([self.dictionary.get(key,'')] + map(str, params))

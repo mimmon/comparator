@@ -68,43 +68,40 @@ class testGUI:
 
     def configure_connection(self):
         self.status.set('Configuring connection')
+        print ('Configuring connection')
         self.port = self.entryPort.get()
         self.baud = self.entryBaud.get()
+        print ('{}:{}'.format(self.port, self.baud))
         try:
             self.baud = int(self.baud)
         except:
+            print ('Something went wrong, setting baud to 0')
             self.entryBaud.delete(0, END)
             self.entryBaud.insert(0, '0')
             self.baud = 0
 
-        self.connection = RS232(comport=self.port, baud=self.baud, dictionary={})
+        self.connection = RS232(comport=self.port, baud=self.baud, dictionary={}, timeout=1)
+        self.connection.connect()
+        print ('Connection status: {}'.format(self.connection))
 
         if self.connection and self.connection.conn:
+            print ('Connection established, locking current settings')
             self.entryPort.configure(state='disabled')
             self.entryBaud.configure(state='disabled')
         else:
+            print ('No connection')
             self.status.set('<No connection>')
 
     def convertInput(self):
         self.status.set('Converting input')
-        print ('Converting')
         typ = self.inputType.get()
         self.input = self.entryInput.get()
-        print (self.input)
         if typ == 'bin':
-            newInput = ''
-            for i in self.input:
-                if i in ['0', '1']:
-                    newInput += i
-            z = len(newInput) % 8
-            self.input = strbit2byte(('' if not z else (8 - z) * '0') + newInput)
+            newInput = ''.join(lambda x: x in '01', self.input)
+            self.input = chr(int(newInput, 2))
         elif typ == 'hex':
-            newInput = ''
-            for i in self.input:
-                if i in '0123456789ABCDEF':
-                    newInput += i
-            z = len(newInput) % 2
-            self.input = hex2byte(('' if not z else '0') + newInput)
+            newInput = ''.join(lambda x: x in '0123456789ABCDEF', self.input)
+            self.input = chr(int(newInput, 16))
         elif typ == 'mix':
             newInput = self.input
             for i in re.findall('<(\d+?)>', inp):
@@ -115,26 +112,36 @@ class testGUI:
     def send(self):
         # self.input = self.entryInput.get()
         self.convertInput()
-        self.status.set('Sending Data {}...'.format(self.input[:5]))
-
+        self.status.set('Sending Data: {}'.format(self.input[:5]))
         if not self.connection or not self.connection.conn:
+            # print ('Connection must be configured')
             self.configure_connection()
         if self.connection and self.connection.conn:
-            self.connection.send(self.input)
+            # print ('Connection seems to be OK')
+            stat = self.connection.send(bytes(self.input, 'utf-8'))
             self.status.set('')
+            if not stat:
+                print ('Sending not successful.')
+            return stat
         else:
+            # print ('Connection probably not established')
             pass
+            return None
             # self.status.set('<No connection>')
 
     def read(self):
         self.status.set('Reading Data')
+        print ('Read data')
         if not self.connection or not self.connection.conn:
+            print ('Configuring connection')
             self.configure_connection()
         # self.input = self.entryInput.get()
         response = self.connection.receive()
         if response:
+            print ('Response {}'.format(response))
             self.response.set(response)
         else:
+            print ('No response')
             self.response.set('<No response>')
         # self.status.set('')
 
@@ -144,6 +151,7 @@ class testGUI:
         # if self.active:
         #     self.startStop()
         self.on = False
+        self.connection and self.connection.disconnect()
         self.root.destroy()
         self.root.quit()
 
